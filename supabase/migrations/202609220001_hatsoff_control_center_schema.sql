@@ -289,15 +289,32 @@ CREATE TABLE IF NOT EXISTS public.notifications (
 );
 
 -- --------------------------------------------------------------------
--- 10. REALTIME PUBLICATION ENABLEMENT
+-- 10. REALTIME PUBLICATION ENABLEMENT (SAFE IDEMPOTENT BLOCK)
 -- --------------------------------------------------------------------
-ALTER PUBLICATION supabase_realtime ADD TABLE public.leads;
-ALTER PUBLICATION supabase_realtime ADD TABLE public.follow_ups;
-ALTER PUBLICATION supabase_realtime ADD TABLE public.proposals;
-ALTER PUBLICATION supabase_realtime ADD TABLE public.conversions;
-ALTER PUBLICATION supabase_realtime ADD TABLE public.field_visits;
-ALTER PUBLICATION supabase_realtime ADD TABLE public.employees;
-ALTER PUBLICATION supabase_realtime ADD TABLE public.sales_targets;
+DO $$ 
+BEGIN 
+  IF NOT EXISTS (SELECT 1 FROM pg_publication_tables WHERE pubname = 'supabase_realtime' AND schemaname = 'public' AND tablename = 'leads') THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.leads;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_publication_tables WHERE pubname = 'supabase_realtime' AND schemaname = 'public' AND tablename = 'follow_ups') THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.follow_ups;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_publication_tables WHERE pubname = 'supabase_realtime' AND schemaname = 'public' AND tablename = 'proposals') THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.proposals;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_publication_tables WHERE pubname = 'supabase_realtime' AND schemaname = 'public' AND tablename = 'conversions') THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.conversions;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_publication_tables WHERE pubname = 'supabase_realtime' AND schemaname = 'public' AND tablename = 'field_visits') THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.field_visits;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_publication_tables WHERE pubname = 'supabase_realtime' AND schemaname = 'public' AND tablename = 'employees') THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.employees;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_publication_tables WHERE pubname = 'supabase_realtime' AND schemaname = 'public' AND tablename = 'sales_targets') THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.sales_targets;
+  END IF;
+END $$;
 
 -- --------------------------------------------------------------------
 -- 11. ROW LEVEL SECURITY (RLS) POLICIES
