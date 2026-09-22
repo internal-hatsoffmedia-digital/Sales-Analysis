@@ -6,12 +6,21 @@ import {
   FieldVisit, SalesTarget, Employee, NotificationItem, LeadActivityLog, 
   UserRole, DateFilterRange, LeadStatus, LeadSource, Priority 
 } from '@/types';
-import { 
-  INITIAL_LEADS, INITIAL_FOLLOWUPS, INITIAL_PROPOSALS, INITIAL_CONVERSIONS, 
-  INITIAL_CAMPAIGNS, INITIAL_FIELD_VISITS, INITIAL_SALES_TARGET, INITIAL_EMPLOYEES, 
-  INITIAL_ACTIVITIES, INITIAL_NOTIFICATIONS 
-} from '@/lib/mockData';
 import { supabase } from '@/lib/supabaseClient';
+
+const DEFAULT_TARGET: SalesTarget = {
+  id: 'st-01',
+  period_month: 'September 2026',
+  target_revenue: 1000000,
+  target_leads: 100,
+  target_prospects: 20,
+  target_conversions: 10,
+  achieved_revenue: 0,
+  achieved_leads: 0,
+  achieved_prospects: 0,
+  achieved_conversions: 0,
+  achievement_pct: 0,
+};
 
 interface AppContextType {
   // User & Filter state
@@ -40,6 +49,7 @@ interface AppContextType {
   employees: Employee[];
   activities: LeadActivityLog[];
   notifications: NotificationItem[];
+  isLoading: boolean;
 
   // Quick Add Drawer State
   isQuickAddOpen: boolean;
@@ -48,14 +58,14 @@ interface AppContextType {
   openQuickAdd: (type?: 'lead' | 'followup' | 'call' | 'meeting' | 'fieldvisit' | 'proposal') => void;
 
   // Actions
-  addLead: (lead: Omit<Lead, 'id' | 'lead_code' | 'created_at'>) => void;
-  updateLeadStatus: (leadId: string, status: LeadStatus) => void;
-  addFollowUp: (followUp: Omit<FollowUp, 'id'>) => void;
-  completeFollowUp: (id: string, outcome: string, scheduleNext?: { date: string; time: string; type: any; purpose: string }) => void;
-  createProposal: (proposal: Omit<Proposal, 'id' | 'proposal_code'>) => void;
-  recordConversion: (conversion: Omit<Conversion, 'id' | 'conversion_code'>) => void;
-  markLeadLost: (leadId: string, lostReason: LostLead['lost_reason'], competitorName?: string, notes?: string) => void;
-  addFieldVisit: (visit: Omit<FieldVisit, 'id'>) => void;
+  addLead: (lead: Omit<Lead, 'id' | 'lead_code' | 'created_at'>) => Promise<void>;
+  updateLeadStatus: (leadId: string, status: LeadStatus) => Promise<void>;
+  addFollowUp: (followUp: Omit<FollowUp, 'id'>) => Promise<void>;
+  completeFollowUp: (id: string, outcome: string, scheduleNext?: { date: string; time: string; type: any; purpose: string }) => Promise<void>;
+  createProposal: (proposal: Omit<Proposal, 'id' | 'proposal_code'>) => Promise<void>;
+  recordConversion: (conversion: Omit<Conversion, 'id' | 'conversion_code'>) => Promise<void>;
+  markLeadLost: (leadId: string, lostReason: LostLead['lost_reason'], competitorName?: string, notes?: string) => Promise<void>;
+  addFieldVisit: (visit: Omit<FieldVisit, 'id'>) => Promise<void>;
   markNotificationRead: (id: string) => void;
 }
 
@@ -69,51 +79,87 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [selectedSourceFilter, setSelectedSourceFilter] = useState<string>('all');
   const [selectedCampaignFilter, setSelectedCampaignFilter] = useState<string>('all');
 
-  const [leads, setLeads] = useState<Lead[]>(INITIAL_LEADS);
-  const [followUps, setFollowUps] = useState<FollowUp[]>(INITIAL_FOLLOWUPS);
-  const [proposals, setProposals] = useState<Proposal[]>(INITIAL_PROPOSALS);
-  const [conversions, setConversions] = useState<Conversion[]>(INITIAL_CONVERSIONS);
+  const [leads, setLeads] = useState<Lead[]>([]);
+  const [followUps, setFollowUps] = useState<FollowUp[]>([]);
+  const [proposals, setProposals] = useState<Proposal[]>([]);
+  const [conversions, setConversions] = useState<Conversion[]>([]);
   const [lostLeads, setLostLeads] = useState<LostLead[]>([]);
-  const [campaigns, setCampaigns] = useState<Campaign[]>(INITIAL_CAMPAIGNS);
-  const [fieldVisits, setFieldVisits] = useState<FieldVisit[]>(INITIAL_FIELD_VISITS);
-  const [salesTarget, setSalesTarget] = useState<SalesTarget>(INITIAL_SALES_TARGET);
-  const [employees, setEmployees] = useState<Employee[]>(INITIAL_EMPLOYEES);
-  const [activities, setActivities] = useState<LeadActivityLog[]>(INITIAL_ACTIVITIES);
-  const [notifications, setNotifications] = useState<NotificationItem[]>(INITIAL_NOTIFICATIONS);
+  const [campaigns, setCampaigns] = useState<Campaign[]>([]);
+  const [fieldVisits, setFieldVisits] = useState<FieldVisit[]>([]);
+  const [salesTarget, setSalesTarget] = useState<SalesTarget>(DEFAULT_TARGET);
+  const [employees, setEmployees] = useState<Employee[]>([]);
+  const [activities, setActivities] = useState<LeadActivityLog[]>([]);
+  const [notifications, setNotifications] = useState<NotificationItem[]>([]);
+  const [isLoading, setIsLoading] = useState<boolean>(true);
 
   const [isQuickAddOpen, setIsQuickAddOpen] = useState(false);
   const [quickAddType, setQuickAddType] = useState<'lead' | 'followup' | 'call' | 'meeting' | 'fieldvisit' | 'proposal'>('lead');
 
-  // Supabase Realtime Setup
+  // Fetch initial data from Supabase DB tables
   useEffect(() => {
+    async function fetchSupabaseData() {
+      setIsLoading(true);
+      try {
+        const { data: dbLeads } = await supabase.from('leads').select('*').order('created_at', { ascending: false });
+        if (dbLeads) setLeads(dbLeads as Lead[]);
+
+        const { data: dbFollowups } = await supabase.from('follow_ups').select('*').order('created_at', { ascending: false });
+        if (dbFollowups) setFollowUps(dbFollowups as FollowUp[]);
+
+        const { data: dbProposals } = await supabase.from('proposals').select('*').order('created_at', { ascending: false });
+        if (dbProposals) setProposals(dbProposals as Proposal[]);
+
+        const { data: dbConversions } = await supabase.from('conversions').select('*').order('created_at', { ascending: false });
+        if (dbConversions) setConversions(dbConversions as Conversion[]);
+
+        const { data: dbFieldVisits } = await supabase.from('field_visits').select('*').order('created_at', { ascending: false });
+        if (dbFieldVisits) setFieldVisits(dbFieldVisits as FieldVisit[]);
+
+        const { data: dbEmployees } = await supabase.from('employees').select('*');
+        if (dbEmployees && dbEmployees.length > 0) setEmployees(dbEmployees as Employee[]);
+
+        const { data: dbTargets } = await supabase.from('sales_targets').select('*').limit(1);
+        if (dbTargets && dbTargets.length > 0) {
+          setSalesTarget(dbTargets[0] as SalesTarget);
+        }
+      } catch (err) {
+        console.warn('Supabase fetch notice:', err);
+      } finally {
+        setIsLoading(false);
+      }
+    }
+
+    fetchSupabaseData();
+
+    // Live Realtime Subscriptions
     const channel = supabase
-      .channel('hatsoff-control-center-realtime')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'leads' },
-        (payload) => {
-          if (payload.eventType === 'INSERT') {
-            setLeads((prev) => [payload.new as Lead, ...prev]);
-          } else if (payload.eventType === 'UPDATE') {
-            setLeads((prev) =>
-              prev.map((l) => (l.id === payload.new.id ? { ...l, ...(payload.new as Lead) } : l))
-            );
-          }
+      .channel('hatsoff-realtime-sync')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'leads' }, (payload) => {
+        if (payload.eventType === 'INSERT') {
+          setLeads((prev) => [payload.new as Lead, ...prev.filter(l => l.id !== payload.new.id)]);
+        } else if (payload.eventType === 'UPDATE') {
+          setLeads((prev) => prev.map((l) => (l.id === payload.new.id ? { ...l, ...(payload.new as Lead) } : l)));
+        } else if (payload.eventType === 'DELETE') {
+          setLeads((prev) => prev.filter((l) => l.id !== payload.old.id));
         }
-      )
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'follow_ups' },
-        (payload) => {
-          if (payload.eventType === 'INSERT') {
-            setFollowUps((prev) => [payload.new as FollowUp, ...prev]);
-          } else if (payload.eventType === 'UPDATE') {
-            setFollowUps((prev) =>
-              prev.map((f) => (f.id === payload.new.id ? { ...f, ...(payload.new as FollowUp) } : f))
-            );
-          }
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'follow_ups' }, (payload) => {
+        if (payload.eventType === 'INSERT') {
+          setFollowUps((prev) => [payload.new as FollowUp, ...prev.filter(f => f.id !== payload.new.id)]);
+        } else if (payload.eventType === 'UPDATE') {
+          setFollowUps((prev) => prev.map((f) => (f.id === payload.new.id ? { ...f, ...(payload.new as FollowUp) } : f)));
         }
-      )
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'proposals' }, (payload) => {
+        if (payload.eventType === 'INSERT') {
+          setProposals((prev) => [payload.new as Proposal, ...prev.filter(p => p.id !== payload.new.id)]);
+        }
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'conversions' }, (payload) => {
+        if (payload.eventType === 'INSERT') {
+          setConversions((prev) => [payload.new as Conversion, ...prev.filter(c => c.id !== payload.new.id)]);
+        }
+      })
       .subscribe();
 
     return () => {
@@ -126,54 +172,31 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setIsQuickAddOpen(true);
   };
 
-  const addLead = (leadData: Omit<Lead, 'id' | 'lead_code' | 'created_at'>) => {
-    const newId = `lead-${Date.now()}`;
-    const newCode = `LEAD-${leads.length + 866}`;
+  const addLead = async (leadData: Omit<Lead, 'id' | 'lead_code' | 'created_at'>) => {
+    const newCode = `LEAD-${leads.length + 101}`;
     const nowIso = new Date().toISOString();
     
     const newLead: Lead = {
-      ...leadData,
-      id: newId,
+      id: typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `lead-${Date.now()}`,
       lead_code: newCode,
       created_at: nowIso,
+      ...leadData,
     };
 
-    setLeads(prev => [newLead, ...prev]);
+    setLeads((prev) => [newLead, ...prev]);
 
-    // Update target metrics & employee stats
-    setSalesTarget(prev => ({
-      ...prev,
-      achieved_leads: prev.achieved_leads + 1,
-    }));
+    // Persist to Supabase Database
+    try {
+      await supabase.from('leads').insert([newLead]);
+    } catch (e) {
+      console.error('Supabase lead insert error:', e);
+    }
 
-    setEmployees(prev => prev.map(emp => {
-      if (emp.id === leadData.assigned_employee_id) {
-        return {
-          ...emp,
-          leads_assigned: emp.leads_assigned + 1,
-          new_leads_created: emp.new_leads_created + 1,
-        };
-      }
-      return emp;
-    }));
-
-    // Add activity log
-    const newActivity: LeadActivityLog = {
-      id: `act-${Date.now()}`,
-      lead_id: newId,
-      company_name: leadData.company_name,
-      author_name: leadData.created_by || 'User',
-      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      type: 'Status Change',
-      description: `Lead created with status: ${leadData.status}`,
-    };
-    setActivities(prev => [newActivity, ...prev]);
-
-    // If next follow up is scheduled, add to follow-ups list
+    // Next follow-up insert if present
     if (leadData.next_followup_date) {
       const newFU: FollowUp = {
-        id: `fu-${Date.now()}`,
-        lead_id: newId,
+        id: typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `fu-${Date.now()}`,
+        lead_id: newLead.id,
         company_name: leadData.company_name,
         contact_person: leadData.contact_person,
         phone: leadData.phone,
@@ -186,79 +209,55 @@ export function AppProvider({ children }: { children: ReactNode }) {
         purpose: 'Initial Follow-up after creation',
         status: 'Upcoming',
       };
-      setFollowUps(prev => [newFU, ...prev]);
+      setFollowUps((prev) => [newFU, ...prev]);
+      try {
+        await supabase.from('follow_ups').insert([newFU]);
+      } catch (e) {
+        console.error('Supabase follow_up insert error:', e);
+      }
     }
   };
 
-  const updateLeadStatus = (leadId: string, status: LeadStatus) => {
-    setLeads(prev => prev.map(l => l.id === leadId ? { ...l, status } : l));
-
-    const targetLead = leads.find(l => l.id === leadId);
-    if (targetLead) {
-      const newActivity: LeadActivityLog = {
-        id: `act-${Date.now()}`,
-        lead_id: leadId,
-        company_name: targetLead.company_name,
-        author_name: 'Current User',
-        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        type: 'Status Change',
-        description: `Lead status updated to: ${status}`,
-      };
-      setActivities(prev => [newActivity, ...prev]);
+  const updateLeadStatus = async (leadId: string, status: LeadStatus) => {
+    setLeads((prev) => prev.map((l) => (l.id === leadId ? { ...l, status } : l)));
+    try {
+      await supabase.from('leads').update({ status }).eq('id', leadId);
+    } catch (e) {
+      console.error('Supabase lead update error:', e);
     }
   };
 
-  const addFollowUp = (fuData: Omit<FollowUp, 'id'>) => {
+  const addFollowUp = async (fuData: Omit<FollowUp, 'id'>) => {
     const newFU: FollowUp = {
+      id: typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `fu-${Date.now()}`,
       ...fuData,
-      id: `fu-${Date.now()}`,
     };
-    setFollowUps(prev => [newFU, ...prev]);
+    setFollowUps((prev) => [newFU, ...prev]);
+    try {
+      await supabase.from('follow_ups').insert([newFU]);
+    } catch (e) {
+      console.error('Supabase follow-up insert error:', e);
+    }
   };
 
-  const completeFollowUp = (id: string, outcome: string, scheduleNext?: { date: string; time: string; type: any; purpose: string }) => {
-    const target = followUps.find(f => f.id === id);
+  const completeFollowUp = async (id: string, outcome: string, scheduleNext?: { date: string; time: string; type: any; purpose: string }) => {
+    const target = followUps.find((f) => f.id === id);
     if (!target) return;
 
-    setFollowUps(prev => prev.map(f => {
-      if (f.id === id) {
-        return {
-          ...f,
-          status: 'Completed',
-          outcome,
-          completed_at: new Date().toISOString(),
-        };
-      }
-      return f;
-    }));
+    const completedAt = new Date().toISOString();
+    setFollowUps((prev) =>
+      prev.map((f) => (f.id === id ? { ...f, status: 'Completed', outcome, completed_at: completedAt } : f))
+    );
 
-    // Update employee metrics
-    setEmployees(prev => prev.map(emp => {
-      if (emp.id === target.assigned_employee_id) {
-        return {
-          ...emp,
-          followups_completed: emp.followups_completed + 1,
-        };
-      }
-      return emp;
-    }));
+    try {
+      await supabase.from('follow_ups').update({ status: 'Completed', outcome, completed_at: completedAt }).eq('id', id);
+    } catch (e) {
+      console.error('Supabase follow-up update error:', e);
+    }
 
-    // Add activity log
-    const newActivity: LeadActivityLog = {
-      id: `act-${Date.now()}`,
-      lead_id: target.lead_id,
-      company_name: target.company_name,
-      author_name: target.assigned_employee_name,
-      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      type: 'Follow-up',
-      description: `Follow-up completed (${target.type}). Outcome: ${outcome}`,
-    };
-    setActivities(prev => [newActivity, ...prev]);
-
-    // Schedule next follow up if requested
     if (scheduleNext) {
       const nextFU: FollowUp = {
-        id: `fu-${Date.now() + 1}`,
+        id: typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `fu-${Date.now() + 1}`,
         lead_id: target.lead_id,
         company_name: target.company_name,
         contact_person: target.contact_person,
@@ -272,67 +271,53 @@ export function AppProvider({ children }: { children: ReactNode }) {
         purpose: scheduleNext.purpose,
         status: 'Upcoming',
       };
-      setFollowUps(prev => [nextFU, ...prev]);
+      setFollowUps((prev) => [nextFU, ...prev]);
+      try {
+        await supabase.from('follow_ups').insert([nextFU]);
+      } catch (e) {
+        console.error('Supabase follow-up insert error:', e);
+      }
     }
   };
 
-  const createProposal = (proposalData: Omit<Proposal, 'id' | 'proposal_code'>) => {
+  const createProposal = async (proposalData: Omit<Proposal, 'id' | 'proposal_code'>) => {
     const newProp: Proposal = {
+      id: typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `prop-${Date.now()}`,
+      proposal_code: `PROP-2026-0${proposals.length + 101}`,
       ...proposalData,
-      id: `prop-${Date.now()}`,
-      proposal_code: `PROP-2026-0${proposals.length + 52}`,
     };
-    setProposals(prev => [newProp, ...prev]);
-    updateLeadStatus(proposalData.lead_id, 'Proposal Sent');
+    setProposals((prev) => [newProp, ...prev]);
+    await updateLeadStatus(proposalData.lead_id, 'Proposal Sent');
 
-    setSalesTarget(prev => ({
-      ...prev,
-      achieved_prospects: prev.achieved_prospects + 1,
-    }));
+    try {
+      await supabase.from('proposals').insert([newProp]);
+    } catch (e) {
+      console.error('Supabase proposal insert error:', e);
+    }
   };
 
-  const recordConversion = (convData: Omit<Conversion, 'id' | 'conversion_code'>) => {
+  const recordConversion = async (convData: Omit<Conversion, 'id' | 'conversion_code'>) => {
     const newConv: Conversion = {
+      id: typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `conv-${Date.now()}`,
+      conversion_code: `WON-2026-0${conversions.length + 101}`,
       ...convData,
-      id: `conv-${Date.now()}`,
-      conversion_code: `WON-2026-0${conversions.length + 18}`,
     };
-    setConversions(prev => [newConv, ...prev]);
+    setConversions((prev) => [newConv, ...prev]);
+    await updateLeadStatus(convData.lead_id, 'Won');
 
-    // Mark lead status as Won
-    updateLeadStatus(convData.lead_id, 'Won');
-
-    // Update Sales Target & Employee Revenue
-    setSalesTarget(prev => ({
-      ...prev,
-      achieved_conversions: prev.achieved_conversions + 1,
-      achieved_revenue: prev.achieved_revenue + convData.final_deal_value,
-    }));
-
-    setEmployees(prev => prev.map(emp => {
-      if (emp.id === convData.sales_executive_id) {
-        const newWon = emp.won_count + 1;
-        const newRev = emp.revenue + convData.final_deal_value;
-        const newRate = Number(((newWon / emp.leads_assigned) * 100).toFixed(2));
-        const newAch = Number(((newRev / emp.target) * 100).toFixed(1));
-        return {
-          ...emp,
-          won_count: newWon,
-          revenue: newRev,
-          conversion_rate: newRate,
-          achievement_pct: newAch,
-        };
-      }
-      return emp;
-    }));
+    try {
+      await supabase.from('conversions').insert([newConv]);
+    } catch (e) {
+      console.error('Supabase conversion insert error:', e);
+    }
   };
 
-  const markLeadLost = (leadId: string, lostReason: LostLead['lost_reason'], competitorName?: string, notes?: string) => {
-    const target = leads.find(l => l.id === leadId);
+  const markLeadLost = async (leadId: string, lostReason: LostLead['lost_reason'], competitorName?: string, notes?: string) => {
+    const target = leads.find((l) => l.id === leadId);
     if (!target) return;
 
     const lostRecord: LostLead = {
-      id: `lost-${Date.now()}`,
+      id: typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `lost-${Date.now()}`,
       lead_id: leadId,
       company_name: target.company_name,
       lost_reason: lostReason,
@@ -342,31 +327,26 @@ export function AppProvider({ children }: { children: ReactNode }) {
       created_at: new Date().toISOString(),
     };
 
-    setLostLeads(prev => [lostRecord, ...prev]);
-    updateLeadStatus(leadId, 'Lost');
+    setLostLeads((prev) => [lostRecord, ...prev]);
+    await updateLeadStatus(leadId, 'Lost');
   };
 
-  const addFieldVisit = (visitData: Omit<FieldVisit, 'id'>) => {
+  const addFieldVisit = async (visitData: Omit<FieldVisit, 'id'>) => {
     const newVisit: FieldVisit = {
+      id: typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `fv-${Date.now()}`,
       ...visitData,
-      id: `fv-${Date.now()}`,
     };
-    setFieldVisits(prev => [newVisit, ...prev]);
+    setFieldVisits((prev) => [newVisit, ...prev]);
 
-    // Update employee field visit / activity counter
-    setEmployees(prev => prev.map(emp => {
-      if (emp.id === visitData.employee_id) {
-        return {
-          ...emp,
-          activities_count: emp.activities_count + 1,
-        };
-      }
-      return emp;
-    }));
+    try {
+      await supabase.from('field_visits').insert([newVisit]);
+    } catch (e) {
+      console.error('Supabase field visit insert error:', e);
+    }
   };
 
   const markNotificationRead = (id: string) => {
-    setNotifications(prev => prev.map(n => n.id === id ? { ...n, is_read: true } : n));
+    setNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, is_read: true } : n)));
   };
 
   return (
@@ -395,6 +375,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         employees,
         activities,
         notifications,
+        isLoading,
         isQuickAddOpen,
         setIsQuickAddOpen,
         quickAddType,
